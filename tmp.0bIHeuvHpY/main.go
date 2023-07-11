@@ -11,9 +11,9 @@ import (
 )
 
 func startHealthCheckHttpServer(wg *sync.WaitGroup) *http.Server {
-	srv := &http.Server{Addr: ":8888"}
+	mux := http.NewServeMux()
 
-	http.HandleFunc("/healthcheck", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/healthcheck", func(w http.ResponseWriter, r *http.Request) {
 		if r == nil || len(r.RemoteAddr) == 0 {
 			log.Panic("Unkown host request for healthcheck")
 		} else {
@@ -22,11 +22,18 @@ func startHealthCheckHttpServer(wg *sync.WaitGroup) *http.Server {
 		fmt.Fprint(w, "OK")
 	})
 
+	srv := &http.Server{
+		Addr:         ":8888",
+		Handler:      mux,
+		TLSConfig:    getCfg(),
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
+	}
+
 	go func() {
 		defer wg.Done() // let main know we are done cleaning up
 
 		// always returns error. ErrServerClosed on graceful close
-		if err := srv.ListenAndServe(); err == http.ErrServerClosed {
+		if err := srv.ListenAndServeTLS("", ""); err == http.ErrServerClosed {
 			log.Printf("Health check server gracefully shutdown: %v", err)
 		} else {
 			// unexpected error. port in use?
@@ -52,6 +59,30 @@ func hi(healthCheckHttpServerSrv *http.Server) {
 		w.Header().Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		w.Write([]byte("This is an example server.\n"))
 	})
+	srv := &http.Server{
+		Addr:         ":4443",
+		Handler:      mux,
+		TLSConfig:    getCfg(),
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
+	}
+	mux.HandleFunc("/poisonous", func(w http.ResponseWriter, req *http.Request) {
+		if shutdownErr := srv.Shutdown(context.TODO()); shutdownErr == nil {
+			log.Printf("TLS server gracefully shutdown")
+		} else {
+			panic(shutdownErr) // failure/timeout shutting down the server gracefully
+		}
+	})
+	// Health check should be running/listening by now
+	log.Fatal(srv.ListenAndServeTLS("", ""))
+	// Shutdown healthcheck
+	if shutdownErr := healthCheckHttpServerSrv.Shutdown(context.TODO()); shutdownErr == nil {
+		log.Printf("TLS server gracefully shutdown")
+	} else {
+		panic(shutdownErr) // failure/timeout shutting down the server gracefully
+	}
+}
+
+func getCfg() *tls.Config {
 	chain, err_chain := os.ReadFile("certs/tls-chain.cert.pem")
 	if nil == err_chain {
 		key, err_key := os.ReadFile("certs/tls-key.pem")
@@ -70,38 +101,18 @@ func hi(healthCheckHttpServerSrv *http.Server) {
 						tls.TLS_RSA_WITH_AES_256_CBC_SHA,
 					},
 				}
-				srv := &http.Server{
-					Addr:         ":4443",
-					Handler:      mux,
-					TLSConfig:    cfg,
-					TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
-				}
-				mux.HandleFunc("/poisonous", func(w http.ResponseWriter, req *http.Request) {
-					if shutdownErr := srv.Shutdown(context.TODO()); shutdownErr == nil {
-						log.Printf("TLS server gracefully shutdown")
-					} else {
-						panic(shutdownErr) // failure/timeout shutting down the server gracefully
-					}
-				})
-				// Health check should be running/listening by now
-				log.Fatal(srv.ListenAndServeTLS("", ""))
-				// Shutdown healthcheck
-				if shutdownErr := healthCheckHttpServerSrv.Shutdown(context.TODO()); shutdownErr == nil {
-					log.Printf("TLS server gracefully shutdown")
-				} else {
-					panic(shutdownErr) // failure/timeout shutting down the server gracefully
-				}
-			} else {
-				log.Fatal(err)
-			}
+				return cfg
+			} 
+			log.Fatal(err)
 		} else {
 			log.Fatal(err_key)
 		}
 	} else {
 		log.Fatal(err_chain)
 	}
-
+	return nil
 }
+
 func main() {
 	httpServerExitDone := &sync.WaitGroup{}
 	httpServerExitDone.Add(1)
