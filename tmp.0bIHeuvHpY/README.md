@@ -31,7 +31,7 @@ Last entry stops server.
 
 # References
 
-https://github.com/denji/golang-tls
-https://stackoverflow.com/questions/47857573/passing-certificate-and-key-as-string-to-listenandservetls
-https://jamielinux.com/docs/openssl-certificate-authority/index.html
+- https://github.com/denji/golang-tls
+- https://stackoverflow.com/questions/47857573/passing-certificate-and-key-as-string-to-listenandservetls
+- https://jamielinux.com/docs/openssl-certificate-authority/index.html
 
