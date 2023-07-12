@@ -5,19 +5,19 @@ import (
 	"log"
 	"net/http"
 	"crypto/tls"
-	"os"
 	"context"
 	"sync"
+	b64 "encoding/base64"
 )
 
 func startHealthCheckHttpServer(wg *sync.WaitGroup) *http.Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthcheck", func(w http.ResponseWriter, r *http.Request) {
-		if r == nil || len(r.RemoteAddr) == 0 {
-			log.Panic("Unkown host request for healthcheck")
+		if r == nil {
+			log.Panic("Missing request for healthcheck")
 		} else {
-			log.Printf("Received healthcheck request from: %s", r.RemoteAddr)
+			log.Printf("Received healthcheck request from: '%s'", r.RemoteAddr)
 		}
 		fmt.Fprint(w, "OK")
 	})
@@ -51,10 +51,12 @@ func startHealthCheckHttpServer(wg *sync.WaitGroup) *http.Server {
 func hi(healthCheckHttpServerSrv *http.Server) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/hi", func(w http.ResponseWriter, req *http.Request) {
-		if req == nil || len(req.RemoteAddr) == 0 {
-			log.Panic("Unkown host request")
+		if req == nil {
+			log.Panic("Missing request details")
+		} else if req.Header == nil {
+			log.Panic("Missing request header")
 		} else {
-			log.Printf("Received request from: %s", req.RemoteAddr)
+			log.Printf("Received request from: '%s'", req.Header.Get("X-Forwarded-For"))
 		}
 		w.Header().Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		w.Write([]byte("This is an example server.\n"))
@@ -82,10 +84,13 @@ func hi(healthCheckHttpServerSrv *http.Server) {
 	}
 }
 
+var chain_data string
+var key_data string
+
 func getCfg() *tls.Config {
-	chain, err_chain := os.ReadFile("certs/tls-chain.cert.pem")
+	chain, err_chain := b64.StdEncoding.DecodeString(chain_data)
 	if nil == err_chain {
-		key, err_key := os.ReadFile("certs/tls-key.pem")
+		key, err_key := b64.StdEncoding.DecodeString(key_data)
 		if nil == err_key {
 			cert, err := tls.X509KeyPair(chain, key)
 			if err == nil {
